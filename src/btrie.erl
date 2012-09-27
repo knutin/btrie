@@ -6,6 +6,10 @@
 -define(VALUE, "v").
 
 
+-include_lib("eunit/include/eunit.hrl").
+
+
+
 %% new() ->
 %%     <<?MAGIC>>.
 
@@ -45,18 +49,16 @@ find(<<?MAGIC, B/binary>>, Key) ->
 find(<<K:8, Size:32/integer, Value:Size/binary, _/binary>>, <<K:8>>) ->
     Value;
 
-find(<<K, ChildrenSize:32/integer, Children:ChildrenSize/binary, _/binary>> = B,
+find(<<>>, _Key) ->
+    error(badarg);
+
+find(<<K, ChildrenSize:32/integer, Children:ChildrenSize/binary, _/binary>>,
      <<K, KeyRest/binary>>) ->
-    io:format("B: ~p~n", [B]),
-    io:format("children: ~p, key: ~p, keyrest: ~p~n", [Children, K, KeyRest]),
     find(Children, KeyRest);
 
 
-find(<<_:8, ChildrenSize:32/integer, Children:ChildrenSize/binary, Siblings/binary>>,
+find(<<_:8, ChildrenSize:32/integer, _:ChildrenSize/binary, Siblings/binary>>,
      Key) ->
-    io:format("children size: ~p~n", [ChildrenSize]),
-    io:format("children: ~p~n", [Children]),
-    io:format("siblings: ~p~n", [Siblings]),
     find(Siblings, Key).
 
 
@@ -65,6 +67,9 @@ insert(<<?MAGIC, B/binary>>, Key, Value) when is_binary(Key) andalso is_binary(V
 
 insert(<<>>, <<Key>>, Value) ->
     node(Key, Value);
+
+insert(<<?VALUE, _/binary>>, <<_Key>>, _Value) ->
+    error(badarg);
 
 insert(<<>>, <<K:8, KeyRest/binary>>, Value) ->
     node(K, insert(<<>>, KeyRest, Value));
@@ -78,9 +83,44 @@ insert(<<K:8, Size:32/integer, Children:Size/binary, Siblings/binary>>,
 insert(<<K:8, Size:32/integer, Children:Size/binary, Siblings/binary>>,
        Key, Value) ->
     NewSiblings = insert(Siblings, Key, Value),
-
     <<K, Size:32, Children/binary, NewSiblings/binary>>.
 
 
 
+delete(<<?MAGIC, B/binary>>, Key) when is_binary(Key) ->
+    delete(B, Key);
+
+delete(<<K:8, Size:32/integer, _:Size/binary, Siblings/binary>>, <<K:8>>) ->
+    Siblings;
+
+delete(<<K:8, Size:32/integer, Children:Size/binary, Siblings/binary>>,
+       <<K, KeyRest/binary>>) ->
+    NewChildren = delete(Children, KeyRest),
+    <<K, (size(NewChildren)):32, NewChildren/binary, Siblings/binary>>;
+
+delete(<<K:8, Size:32/integer, Children:Size/binary, Siblings/binary>>,
+       Key) ->
+    NewSiblings = delete(Siblings, Key),
+    <<K, Size:32, Children/binary, NewSiblings/binary>>.
+
+
+
+
+%%
+%% TESTS
+%%
+
+find_test() ->
+    ?assertEqual(<<"foo">>, find(new(), <<"aa">>)).
+
+insert_test() ->
+    ?assertEqual(<<"new">>, find(insert(new(), <<"def">>, <<"new">>), <<"def">>)),
+    ?assertError(badarg, insert(new(), <<"aaa">>, <<"foo">>)).
+
+delete_test() ->
+    ?assertEqual(not_found, find(
+                              delete(
+                                insert(new(), <<"def">>, <<"new">>),
+                                <<"def">>),
+                              <<"def">>)).
 
