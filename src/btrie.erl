@@ -13,6 +13,8 @@
 new() ->
     <<?MAGIC>>.
 
+size_mb(B) ->
+    size(B) / 1024 / 1024.
 
 node(K, Value, Children) ->
     <<K:8,
@@ -90,8 +92,6 @@ insert(<<NodeK,
               (size(NewChildren)):32/integer, NewChildren/binary, Siblings/binary>>
     end.
 
-%% insert(B, K, V) ->
-%%     io:format("b: ~p~nk: ~p~nv: ~p~n", [B, K, V]).
 
 
 
@@ -104,14 +104,11 @@ delete(<<K,
        <<K>>) ->
     <<K, 0:32, ChildrenSize:32, Children/binary, Siblings/binary>>;
 
-%%Siblings;
-
 delete(<<K,
          ValueSize:32/integer, Value:ValueSize/binary,
          ChildrenSize:32/integer, Children:ChildrenSize/binary, Siblings/binary>>,
        <<K, KeyRest/binary>>) ->
     NewChildren = delete(Children, KeyRest),
-
     <<K,
       ValueSize:32/integer, Value/binary,
       (size(NewChildren)):32/integer, NewChildren/binary, Siblings/binary>>;
@@ -166,6 +163,16 @@ delete_test() ->
          {<<"abc">>, <<"abc">>}],
     ?assertEqual(not_found, find(delete(from_list(L), <<"abc">>), <<"abc">>)).
 
+
+size_test() ->
+    NumKeys = 10000,
+
+    Start = 10000000,
+    L = lists:map(fun (I) -> {list_to_binary(integer_to_list(I)), <<0>>} end,
+                  lists:seq(Start, Start + NumKeys)),
+    StartTime = now(),
+    B = from_list(L),
+    timer:now_diff(now(), StartTime) / 1000.
 
 
 
