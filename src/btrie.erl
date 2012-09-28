@@ -1,108 +1,150 @@
 -module(btrie).
 -compile([export_all]).
 
-
 -define(MAGIC, "btrie").
 -define(VALUE, "v").
 
 
+-include_lib("proper/include/proper.hrl").
 -include_lib("eunit/include/eunit.hrl").
 
 
 
-%% new() ->
-%%     <<?MAGIC>>.
-
-%% insert(<<?MAGIC, B/binary>>, K, V) ->
-
-node(K, Children) ->
-    <<K:8, (size(Children)):32/integer, Children/binary>>.
-
-
-leaf(K, Value) ->
-    <<K:8, (size(Value)+1):32/integer, (<<?VALUE, Value/binary>>)/binary>>.
-
-
 new() ->
-    Tree = node($a,
-                <<
-                  (leaf($a, <<"foo">>))/binary,
-                  (leaf($b, <<"bar">>))/binary,
-                  (node($c,
-                        << (leaf($c, <<"quu">>))/binary >>
-                       ))/binary
-                >>
-               ),
+    <<?MAGIC>>.
 
-    <<?MAGIC, Tree/binary>>.
 
+node(K, Value, Children) ->
+    <<K:8,
+      (size(Value)):32/integer, Value/binary,
+      (size(Children)):32/integer, Children/binary>>.
 
 
 find(<<?MAGIC, B/binary>>, Key) ->
     case find(B, Key) of
-        <<?VALUE, Value/binary>> ->
-            Value;
-        _ ->
-            error(badarg)
+        <<>> ->
+            not_found;
+        Value ->
+            Value
     end;
 
-find(<<K:8, Size:32/integer, Value:Size/binary, _/binary>>, <<K:8>>) ->
+
+find(<<K:8,
+       ValueSize:32/integer, Value:ValueSize/binary,
+       ChildrenSize:32/integer, _:ChildrenSize/binary, _/binary>>, <<K:8>>) ->
     Value;
 
 find(<<>>, _Key) ->
-    error(badarg);
+    <<>>;
 
-find(<<K, ChildrenSize:32/integer, Children:ChildrenSize/binary, _/binary>>,
+find(<<K,
+       ValueSize:32/integer, _:ValueSize/binary,
+       ChildrenSize:32/integer, Children:ChildrenSize/binary, _/binary>>,
      <<K, KeyRest/binary>>) ->
     find(Children, KeyRest);
 
 
-find(<<_:8, ChildrenSize:32/integer, _:ChildrenSize/binary, Siblings/binary>>,
+find(<<_:8,
+       ValueSize:32/integer, _:ValueSize/binary,
+       ChildrenSize:32/integer, _:ChildrenSize/binary, Siblings/binary>>,
      Key) ->
     find(Siblings, Key).
 
 
 insert(<<?MAGIC, B/binary>>, Key, Value) when is_binary(Key) andalso is_binary(Value) ->
-    insert(B, Key, Value);
+    <<?MAGIC, (insert(B, Key, Value))/binary>>;
 
 insert(<<>>, <<Key>>, Value) ->
-    node(Key, Value);
+    node(Key, Value, <<>>);
 
-insert(<<?VALUE, _/binary>>, <<_Key>>, _Value) ->
-    error(badarg);
 
 insert(<<>>, <<K:8, KeyRest/binary>>, Value) ->
-    node(K, insert(<<>>, KeyRest, Value));
+    node(K, <<>>, insert(<<>>, KeyRest, Value));
 
 
-insert(<<K:8, Size:32/integer, Children:Size/binary, Siblings/binary>>,
-       <<K, KeyRest/binary>>, Value) ->
-    NewChildren = insert(Children, KeyRest, Value),
-    <<K, (size(NewChildren)):32, NewChildren/binary, Siblings/binary>>;
+insert(<<K,
+         ValueSize:32/integer, _OldValue:ValueSize/binary,
+         ChildrenSize:32/integer, Children:ChildrenSize/binary, Siblings/binary>>,
+       <<K>>, Value) ->
+    <<K,
+      (size(Value)):32/integer, Value/binary,
+      ChildrenSize:32/integer, Children/binary, Siblings/binary>>;
 
-insert(<<K:8, Size:32/integer, Children:Size/binary, Siblings/binary>>,
-       Key, Value) ->
-    NewSiblings = insert(Siblings, Key, Value),
-    <<K, Size:32, Children/binary, NewSiblings/binary>>.
+insert(<<NodeK,
+         ValueSize:32/integer, NodeValue:ValueSize/binary,
+         ChildrenSize:32/integer, Children:ChildrenSize/binary, Siblings/binary>>,
+       <<K, KeyRest/binary>> = Key, Value) ->
+
+    if
+        NodeK < K ->
+            <<NodeK, ValueSize:32, NodeValue/binary,
+              ChildrenSize:32, Children/binary,
+              (insert(Siblings, Key, Value))/binary>>;
+        NodeK > K ->
+            <<(insert(<<>>, Key, Value))/binary,
+              NodeK, ValueSize:32, NodeValue/binary,
+              ChildrenSize:32, Children/binary, Siblings/binary>>;
+        NodeK =:= K ->
+            NewChildren = insert(Children, KeyRest, Value),
+            <<NodeK, ValueSize:32, NodeValue/binary,
+              (size(NewChildren)):32/integer, NewChildren/binary, Siblings/binary>>
+    end.
+
+%% insert(B, K, V) ->
+%%     io:format("b: ~p~nk: ~p~nv: ~p~n", [B, K, V]).
 
 
 
 delete(<<?MAGIC, B/binary>>, Key) when is_binary(Key) ->
-    delete(B, Key);
+    <<?MAGIC, (delete(B, Key))/binary>>;
 
-delete(<<K:8, Size:32/integer, _:Size/binary, Siblings/binary>>, <<K:8>>) ->
-    Siblings;
+delete(<<K,
+         ValueSize:32/integer, _:ValueSize/binary,
+         ChildrenSize:32/integer, Children:ChildrenSize/binary, Siblings/binary>>,
+       <<K>>) ->
+    <<K, 0:32, ChildrenSize:32, Children/binary, Siblings/binary>>;
 
-delete(<<K:8, Size:32/integer, Children:Size/binary, Siblings/binary>>,
+%%Siblings;
+
+delete(<<K,
+         ValueSize:32/integer, Value:ValueSize/binary,
+         ChildrenSize:32/integer, Children:ChildrenSize/binary, Siblings/binary>>,
        <<K, KeyRest/binary>>) ->
     NewChildren = delete(Children, KeyRest),
-    <<K, (size(NewChildren)):32, NewChildren/binary, Siblings/binary>>;
 
-delete(<<K:8, Size:32/integer, Children:Size/binary, Siblings/binary>>,
+    <<K,
+      ValueSize:32/integer, Value/binary,
+      (size(NewChildren)):32/integer, NewChildren/binary, Siblings/binary>>;
+
+delete(<<K,
+         ValueSize:32/integer, Value:ValueSize/binary,
+         ChildrenSize:32/integer, Children:ChildrenSize/binary, Siblings/binary>>,
        Key) ->
     NewSiblings = delete(Siblings, Key),
-    <<K, Size:32, Children/binary, NewSiblings/binary>>.
+    <<K,
+      ValueSize:32, Value/binary,
+      ChildrenSize:32, Children/binary, NewSiblings/binary>>.
 
+
+
+
+print(<<?MAGIC, B/binary>>) ->
+    print(B);
+
+print(<<>>) ->
+    [];
+
+print(<<K,
+        ValueSize:32/integer, Value:ValueSize/binary,
+        ChildrenSize:32/integer, Children:ChildrenSize/binary,
+        Siblings/binary>>) ->
+
+    [{<<K>>, Value, print(Children)} | print(Siblings)].
+
+
+from_list(L) ->
+    lists:foldl(fun ({K, V}, T) -> insert(T, K, V) end,
+                new(), L).
 
 
 
@@ -110,17 +152,68 @@ delete(<<K:8, Size:32/integer, Children:Size/binary, Siblings/binary>>,
 %% TESTS
 %%
 
-find_test() ->
-    ?assertEqual(<<"foo">>, find(new(), <<"aa">>)).
 
 insert_test() ->
-    ?assertEqual(<<"new">>, find(insert(new(), <<"def">>, <<"new">>), <<"def">>)),
-    ?assertError(badarg, insert(new(), <<"aaa">>, <<"foo">>)).
+    L = [{<<"ab">>, <<"b">>}, {<<"aa">>, <<"a">>}, {<<"ac">>, <<"c">>},
+         {<<"abc">>, <<"abc">>}, {<<"ac">>, <<"ac">>}],
+
+    %%error_logger:info_msg("~p~n", [print(from_list(L))]),
+    ?assertEqual(<<"abc">>, find(from_list(L), <<"abc">>)),
+    ?assertEqual(<<"ac">>, find(from_list(L), <<"ac">>)).
 
 delete_test() ->
-    ?assertEqual(not_found, find(
-                              delete(
-                                insert(new(), <<"def">>, <<"new">>),
-                                <<"def">>),
-                              <<"def">>)).
+    L = [{<<"ab">>, <<"b">>}, {<<"aa">>, <<"a">>}, {<<"ac">>, <<"c">>},
+         {<<"abc">>, <<"abc">>}],
+    ?assertEqual(not_found, find(delete(from_list(L), <<"abc">>), <<"abc">>)).
 
+
+
+
+%%
+%% PROPER
+%%
+
+prop_test() ->
+    ?assert(proper:quickcheck(prop_insert())),
+    ?assert(proper:quickcheck(prop_delete())).
+
+
+prop__key() ->
+    non_empty(binary(2)).
+
+
+prop__value() ->
+    non_empty(binary(1)).
+
+prop__pair() ->
+    {prop__key(), prop__value()}.
+
+
+prop__unique(G) ->
+    ?LET(L, G, lists:ukeysort(1, L)).
+
+prop__pairs() ->
+    prop__unique(?SIZED(Size, prop__pairs(Size-1))).
+
+prop__pairs(0) ->
+    [prop__pair()];
+prop__pairs(S) ->
+    [prop__pair() | prop__pairs(S-1)].
+
+
+prop_insert() ->
+    ?FORALL(L, prop__pairs(),
+            begin
+                [{K, V} | _] = L,
+                B = from_list(L),
+                find(B, K) =:= V
+            end).
+
+prop_delete() ->
+    ?FORALL(L, prop__pairs(),
+            begin
+                [{K, V} | _] = L,
+                B = from_list(L),
+                find(B, K) =:= V andalso
+                    find(delete(B, K), K) =:= not_found
+            end).
